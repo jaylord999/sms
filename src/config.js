@@ -50,8 +50,51 @@ if (problems.length > 0) {
     // eslint-disable-next-line no-console
     console.error(`  - ${problem}`);
   }
+
+  // Detect a hosted PaaS so the guidance points at the right place. Telling
+  // someone to edit `.env` on Render is actively unhelpful: the file is not
+  // deployed and the variable must be set in the dashboard instead.
+  const hosted = process.env.RENDER
+    || process.env.RENDER_SERVICE_ID
+    || process.env.RAILWAY_ENVIRONMENT
+    || process.env.FLY_APP_NAME
+    || process.env.DYNO
+    || process.env.VERCEL
+    || process.env.HEROKU_APP_NAME;
+
   // eslint-disable-next-line no-console
-  console.error('\nSet these in your .env file (see .env.example).\n');
+  console.error('\n  These must be real values. The process refuses to start without');
+  // eslint-disable-next-line no-console
+  console.error('  them, because a gateway that can send SMS must never run with a');
+  // eslint-disable-next-line no-console
+  console.error('  guessable session secret or an unverifiable sign-in provider.\n');
+
+  if (hosted) {
+    // eslint-disable-next-line no-console
+    console.error('  WHERE TO SET THEM (hosted platform detected):');
+    // eslint-disable-next-line no-console
+    console.error('    Dashboard -> your service -> Environment -> Add Environment Variable');
+    // eslint-disable-next-line no-console
+    console.error('    A .env file is NOT used here; it is not included in the deploy.\n');
+    // eslint-disable-next-line no-console
+    console.error('  Remember to also set:');
+    // eslint-disable-next-line no-console
+    console.error(`    APP_ORIGIN   the public URL of this service, no trailing slash`);
+    // eslint-disable-next-line no-console
+    console.error('                 (for example https://your-app.onrender.com)');
+    // eslint-disable-next-line no-console
+    console.error('                 Without it, CSRF origin checks reject every send.\n');
+    // eslint-disable-next-line no-console
+    console.error('  Generate the secrets with:');
+    // eslint-disable-next-line no-console
+    console.error('    node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"\n');
+  } else {
+    // eslint-disable-next-line no-console
+    console.error('  Set these in your .env file (see .env.example), or export them');
+    // eslint-disable-next-line no-console
+    console.error('  as environment variables before starting the process.\n');
+  }
+
   process.exit(1);
 }
 
