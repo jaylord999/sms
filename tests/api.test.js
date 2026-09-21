@@ -146,6 +146,31 @@ describe('security headers', () => {
     assert.match(policy, /geolocation=\(\)/);
   });
 
+  it('allows Google Identity Services to load its button stylesheet', async () => {
+    const response = await call('/api/health');
+    const csp = response.headers.get('content-security-policy') ?? '';
+
+    // Extract just the style-src directive. GSI injects a stylesheet from
+    // accounts.google.com; without this allowance the real Google button
+    // renders unstyled, which both looks broken and makes a genuine Google
+    // control indistinguishable from a lookalike.
+    const styleSrc = csp.split(';').find((part) => part.trim().startsWith('style-src')) ?? '';
+
+    assert.match(
+      styleSrc,
+      /https:\/\/accounts\.google\.com/,
+      'style-src must allow https://accounts.google.com or the GIS button renders unstyled',
+    );
+  });
+
+  it('allows the sign-in iframe from Google', async () => {
+    const response = await call('/api/health');
+    const csp = response.headers.get('content-security-policy') ?? '';
+    const frameSrc = csp.split(';').find((part) => part.trim().startsWith('frame-src')) ?? '';
+
+    assert.match(frameSrc, /https:\/\/accounts\.google\.com/);
+  });
+
   it('issues a CSRF cookie that JavaScript can read', async () => {
     // Deliberately sent WITHOUT an existing CSRF cookie, because the server only
     // issues a new one when none is present.

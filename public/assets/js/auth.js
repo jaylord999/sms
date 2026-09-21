@@ -148,11 +148,28 @@ async function handleCredential(response) {
 }
 
 /**
+ * Guard flags for Google Identity Services initialisation.
+ *
+ * `google.accounts.id.initialize()` must be called exactly once per page load.
+ * Calling it again logs a warning and silently discards the previous
+ * configuration, which is a subtle failure mode: the button keeps working but
+ * the callback may no longer be the one you registered.
+ *
+ * `renderButton()` must not be called repeatedly into the same host either, or
+ * the button is drawn on top of itself every time the user opens the policy
+ * modal.
+ */
+let gsiInitialised = false;
+let gsiButtonRendered = false;
+
+/**
  * Initialise Google Identity Services and render its button.
  *
  * Google renders the button itself rather than us styling our own. That matters
  * beyond branding: it prevents a lookalike control being substituted to harvest
  * credentials, and Google validates the origin it renders into.
+ *
+ * Safe to call repeatedly; only the first effective call does any work.
  *
  * @returns {{ok: boolean, reason: string|null}}
  */
@@ -172,42 +189,55 @@ export function initGoogleSignIn() {
   }
 
   try {
-    window.google.accounts.id.initialize({
-      client_id: state.googleClientId,
-      callback: async (response) => {
-        const result = await handleCredential(response);
+    // Skip re-initialisation. The callback closure captures the same state, so
+    // re-registering it adds nothing and risks the warning above.
+    if (!gsiInitialised) {
+      window.google.accounts.id.initialize({
+        client_id: state.googleClientId,
+        callback: async (response) => {
+          const result = await handleCredential(response);
 
-        if (!result.ok) {
-          // This module deliberately renders no UI of its own; it reports the
-          // problem and lets the view layer decide how to present it.
-          document.dispatchEvent(
-            new CustomEvent('lifeline:auth-error', { detail: { message: result.error } }),
-          );
-        }
-      },
-      // Do not auto-select a returning account on load. On a service that can
-      // send SMS, an accidental signed-in state is a real risk, so an explicit
-      // click is worth the extra step.
-      auto_select: false,
-      cancel_on_tap_outside: true,
-    });
+          if (!result.ok) {
+            // This module deliberately renders no UI of its own; it reports the
+            // problem and lets the view layer decide how to present it.
+            document.dispatchEvent(
+              new CustomEvent('lifeline:auth-error', { detail: { message: result.error } }),
+            );
+          }
+        },
+        // Do not auto-select a returning account on load. On a service that can
+        // send SMS, an accidental signed-in state is a real risk, so an explicit
+        // click is worth the extra step.
+        auto_select: false,
+        cancel_on_tap_outside: true,
+      });
 
-    // Google's button renders into this host; the plain button is hidden.
-    window.google.accounts.id.renderButton(host, {
-      type: 'standard',
-      theme: 'filled_black',
-      size: 'medium',
-      shape: 'pill',
-      text: 'signin_with',
-      logo_alignment: 'left',
-      width: 200,
-    });
+      gsiInitialised = true;
+      // One Tap is intentionally NOT prompted: it is a frequent source of user
+      // confusion and unrequested sign-in attempts on shared devices.
+    }
+
+    if (!gsiButtonRendered) {
+      // Clear any stale content so a re-render cannot stack buttons.
+      host?.replaceChildren();
+
+      // Google's button renders into this host; the plain button is hidden.
+      window.google.accounts.id.renderButton(host, {
+        type: 'standard',
+        theme: 'filled_black',
+        size: 'medium',
+        shape: 'pill',
+        text: 'signin_with',
+        logo_alignment: 'left',
+        width: 200,
+      });
+
+      gsiButtonRendered = true;
+    }
 
     host?.classList.remove('hidden');
     fallback?.classList.add('hidden');
 
-    // One Tap is intentionally NOT prompted: it is a frequent source of user
-    // confusion and unrequested sign-in attempts on shared devices.
     return { ok: true, reason: null };
   } catch (error) {
     // eslint-disable-next-line no-console
@@ -263,6 +293,11 @@ export async function signOut() {
     if (window.google?.accounts?.id) {
       window.google.accounts.id.disableAutoSelect();
     }
+
+    // Allow the button to be rendered again on the next sign-in. The
+    // `initialize()` guard stays set, because that call is once per page load
+    // and re-issuing it would discard the existing configuration.
+    gsiButtonRendered = false;
 
     return { ok: true };
   } catch (error) {

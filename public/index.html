@@ -22,10 +22,29 @@
     -->
     <script src="https://accounts.google.com/gsi/client"></script>
 
-    <!-- Tailwind CSS CDN runtime -->
+    <!--
+      Tailwind CSS CDN runtime.
+      This prints a console warning in production advising a build step. That
+      warning is correct: the CDN runtime compiles utilities in the browser,
+      which costs roughly 100ms on first paint and forbids a strict CSP, since
+      it requires 'unsafe-inline' in style-src.
+
+      To remove it:
+        1. npx tailwindcss -i ./src/input.css -o ./public/assets/css/tailwind.css --minify
+        2. Replace this script tag with <link rel="stylesheet" href="/assets/css/tailwind.css">
+        3. Delete https://cdn.tailwindcss.com from TRUSTED.scripts and remove
+           'unsafe-inline' from TRUSTED.styles in src/security/helmet.config.js
+    -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Lucide icon library -->
-    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!--
+      Lucide icon library. Version pinned deliberately: @latest would let an
+      upstream breaking release silently blank every icon on the page, with no
+      deploy on our side to correlate it with. v1.x also restructures the
+      package, so an unpinned URL is a real upgrade hazard rather than a
+      theoretical one.
+    -->
+    <script src="https://unpkg.com/lucide@0.462.0/dist/umd/lucide.min.js" crossorigin="anonymous"></script>
     <!-- Inter font -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 

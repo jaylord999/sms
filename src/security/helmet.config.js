@@ -18,17 +18,30 @@
 import helmet from 'helmet';
 import config from '../config.js';
 
-/** Origins the browser is permitted to load resources from. */
+/**
+ * Origins the browser is permitted to load resources from.
+ *
+ * Every entry here is a deliberate, documented allowance. When adding one,
+ * record WHY - an unexplained CSP allowance is indistinguishable from a mistake
+ * and tends to survive long after the dependency that needed it is gone.
+ */
 const TRUSTED = {
   scripts: [
     "'self'",
     'https://accounts.google.com', // Google Identity Services
-    'https://cdn.tailwindcss.com', // Tailwind CDN runtime
-    'https://unpkg.com', // Lucide icon library
+    'https://cdn.tailwindcss.com', // Tailwind CDN runtime (remove when compiled)
+    'https://unpkg.com', // Lucide icon library (remove when self-hosted)
   ],
   styles: [
     "'self'",
-    "'unsafe-inline'", // Required by the Tailwind CDN runtime; see note above
+    // Google Identity Services injects its own stylesheet for the sign-in
+    // button. Without this the button renders unstyled, which both looks broken
+    // and makes a genuine Google control indistinguishable from a lookalike -
+    // the exact substitution the button design is meant to prevent.
+    'https://accounts.google.com',
+    // Tailwind CDN compiles utilities in the browser and injects them as a
+    // <style> block. Removing this requires compiling Tailwind ahead of time.
+    "'unsafe-inline'",
     'https://fonts.googleapis.com',
   ],
   fonts: ["'self'", 'https://fonts.gstatic.com', 'data:'],
@@ -37,6 +50,9 @@ const TRUSTED = {
     "'self'",
     'https://accounts.google.com',
     'https://oauth2.googleapis.com',
+    // Lucide's UMD bundle requests its source map when devtools are open.
+    // Blocking it produces a noisy console error that masks real problems.
+    'https://unpkg.com',
   ],
   frames: ['https://accounts.google.com'], // GIS renders its button in an iframe
 };
