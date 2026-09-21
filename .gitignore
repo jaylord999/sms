@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# Environment / secrets  -- NEVER COMMIT THESE
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+serviceAccount*.json
+credentials.json
+
+# Logs (may contain audit PII / pseudonymised identifiers)
+logs/
+*.log
+npm-debug.log*
+
+# Runtime
+pids/
+*.pid
+*.seed
+.tmp/
+temp/
+coverage/
+.nyc_output/
+
+# Editor / OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Build output
+dist/
+build/

@@ -1,0 +1,33 @@
+{
+  "name": "lifelinesms-gateway",
+  "version": "2.0.0",
+  "private": true,
+  "description": "LifelineSMS PH - zero-load emergency SMS gateway with multi-layer server-side content moderation, verified Google identity, and hardenened security headers.",
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test tests/",
+    "audit:keywords": "node scripts/report-keywords.js"
+  },
+  "dependencies": {
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "google-auth-library": "^9.15.0",
+    "helmet": "^8.0.0"
+  },
+  "keywords": [
+    "sms",
+    "moderation",
+    "philippines",
+    "emergency",
+    "security"
+  ],
+  "license": "UNLICENSED"
+}

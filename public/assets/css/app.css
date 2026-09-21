@@ -1,0 +1,130 @@
+/* ===========================================================================
+   LifelineSMS - Application stylesheet
+   ---------------------------------------------------------------------------
+   Only what Tailwind's CDN runtime cannot express: layered background art,
+   glassmorphism, and a few keyframe animations. Layout and spacing stay in
+   utility classes inside the markup so the two never fight each other.
+   =========================================================================== */
+
+body {
+    font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* --- Layered radial background ------------------------------------------ */
+.artistic-bg {
+    background-color: #030712;
+    background-image:
+        radial-gradient(at 0% 0%, rgba(16, 185, 129, 0.15) 0px, transparent 50%),
+        radial-gradient(at 100% 0%, rgba(245, 158, 11, 0.12) 0px, transparent 50%),
+        radial-gradient(at 50% 100%, rgba(13, 148, 136, 0.1) 0px, transparent 50%);
+}
+
+/* --- Glassmorphism ------------------------------------------------------- */
+.glass-card {
+    background: rgba(15, 23, 42, 0.75);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* --- Floating tip bubble animation -------------------------------------- */
+@keyframes messageFloat {
+    0%   { opacity: 0; transform: translateY(15px) scale(0.95); }
+    15%  { opacity: 1; transform: translateY(0)    scale(1);    }
+    85%  { opacity: 1; transform: translateY(0)    scale(1);    }
+    100% { opacity: 0; transform: translateY(-15px) scale(0.95); }
+}
+
+.bubble-anim {
+    animation: messageFloat 6s ease-in-out forwards;
+}
+
+/* --- Severity pulse ring for the block modal ---------------------------- */
+@keyframes severityPulse {
+    0%, 100% { box-shadow: 0 0 0 0    rgba(239, 68, 68, 0.5); }
+    50%      { box-shadow: 0 0 0 12px rgba(239, 68, 68, 0);   }
+}
+
+.severity-pulse {
+    animation: severityPulse 1.8s ease-out infinite;
+}
+
+/* --- Entry animation used by dynamically inserted panels ---------------- */
+@keyframes fadeSlideIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0);   }
+}
+
+.animate-enter {
+    animation: fadeSlideIn 0.22s ease-out both;
+}
+
+/* --- Pending state for the send button --------------------------------- */
+@keyframes shimmer {
+    0%   { background-position: -200% 0; }
+    100% { background-position:  200% 0; }
+}
+
+.btn-pending {
+    background-size: 200% 100%;
+    animation: shimmer 1.4s linear infinite;
+}
+
+/* --- Scrollbar styling for the dispatch feed ---------------------------- */
+#log-box::-webkit-scrollbar,
+#policy-body::-webkit-scrollbar {
+    width: 5px;
+}
+
+#log-box::-webkit-scrollbar-track,
+#policy-body::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+#log-box::-webkit-scrollbar-thumb,
+#policy-body::-webkit-scrollbar-thumb {
+    background: rgba(16, 185, 129, 0.35);
+    border-radius: 9999px;
+}
+
+#log-box::-webkit-scrollbar-thumb:hover,
+#policy-body::-webkit-scrollbar-thumb:hover {
+    background: rgba(16, 185, 129, 0.6);
+}
+
+/* --- Remove native spinners from the phone input ------------------------ */
+input[type="tel"]::-webkit-outer-spin-button,
+input[type="tel"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+/* --- Focus visibility --------------------------------------------------- */
+:focus-visible {
+    outline: 2px solid rgba(16, 185, 129, 0.8);
+    outline-offset: 2px;
+}
+
+/* --- Accessibility: honour reduced-motion preferences ------------------- */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+        scroll-behavior: auto !important;
+    }
+}
+
+/* --- Print: hide interactive chrome ------------------------------------- */
+@media print {
+    header,
+    footer,
+    #left-floating-bubble,
+    #right-floating-bubble,
+    #toast-host {
+        display: none !important;
+    }
+}

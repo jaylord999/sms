@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LifelineSMS | PH Zero-Load Emergency Gateway</title>
+
+    <!-- ===================================================================
+         SECURITY HARDENING: Content-Security-Policy
+         Restricts script/style/connect sources to trusted origins only.
+         Prevents injected third-party scripts and data exfiltration.
+         NOTE: 'unsafe-inline' is required for the Tailwind CDN runtime and
+         inline handlers. For production, compile Tailwind and remove it.
+         =================================================================== -->
+    <meta http-equiv="Content-Security-Policy" content="
+        default-src 'self';
+        script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://unpkg.com https://accounts.google.com https://apis.google.com;
+        style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+        font-src 'self' https://fonts.gstatic.com data:;
+        img-src 'self' data: https:;
+        connect-src 'self' https://accounts.google.com https://oauth2.googleapis.com;
+        frame-src https://accounts.google.com;
+        form-action 'self';
+        base-uri 'none';
+        object-src 'none';
+    ">
+    <meta name="referrer" content="strict-origin-when-cross-origin">
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="description" content="LifelineSMS - a zero-load PH emergency SMS gateway demonstration with AI content moderation and verified identity.">
+
+    <!-- Google Identity Services (real OAuth 2.0 - replace CLIENT_ID in config) -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons CDN -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Inter Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        
+        /* Artistic Background Gradients & Glows */
+        .artistic-bg {
+            background-color: #030712;
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(16, 185, 129, 0.15) 0px, transparent 50%),
+                radial-gradient(at 100% 0%, rgba(245, 158, 11, 0.12) 0px, transparent 50%),
+                radial-gradient(at 50% 100%, rgba(13, 148, 136, 0.1) 0px, transparent 50%);
+        }
+
+        /* Glassmorphism Effect */
+        .glass-card {
+            background: rgba(15, 23, 42, 0.75);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        /* Floating Message Bubble Animation */
+        @keyframes messageFloat {
+            0% { opacity: 0; transform: translateY(15px) scale(0.95); }
+            15% { opacity: 1; transform: translateY(0px) scale(1); }
+            85% { opacity: 1; transform: translateY(0px) scale(1); }
+            100% { opacity: 0; transform: translateY(-15px) scale(0.95); }
+        }
+        
+        .bubble-anim {
+            animation: messageFloat 6s ease-in-out forwards;
+        }
+
+        /* Moderation severity pulse ring */
+        @keyframes severityPulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5); }
+            50%      { box-shadow: 0 0 0 12px rgba(239, 68, 68, 0); }
+        }
+        .severity-pulse { animation: severityPulse 1.8s ease-out infinite; }
+
+        /* Accessibility: honour reduced-motion preferences */
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.001ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.001ms !important;
+            }
+        }
+
+        /* Hide native number-input spinners for a cleaner terminal look */
+        input[type="tel"]::-webkit-outer-spin-button,
+        input[type="tel"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    </style>
+</head>
+<body class="artistic-bg text-slate-100 min-h-full flex flex-col justify-between selection:bg-emerald-500 selection:text-slate-950 relative overflow-x-hidden">
+
+    <!-- Ambient Glow Orbs -->
+    <div class="absolute top-10 left-1/4 w-96 h-96 bg-emerald-500/10 rounded-full blur-[120px] pointer-events-none"></div>
+    <div class="absolute bottom-10 right-1/4 w-96 h-96 bg-amber-500/10 rounded-full blur-[120px] pointer-events-none"></div>
+
+    <!-- Floating Chat-Shaped Side Windows / Bubbles Container -->
+    <div id="left-floating-bubble" class="hidden lg:block fixed left-6 top-1/3 z-30 max-w-[240px]"></div>
+    <div id="right-floating-bubble" class="hidden lg:block fixed right-6 top-1/2 z-30 max-w-[240px]"></div>
+
+    <!-- Header Section -->
+    <header class="sticky top-0 z-50 glass-card border-b border-slate-800/80">
+        <div class="max-w-6xl mx-auto px-4 py-3.5 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center shadow-lg shadow-emerald-500/25">
+                    <i data-lucide="radio-tower" class="w-5 h-5 text-slate-950 stroke-[2.5]"></i>
+                </div>
+                <div>
+                    <div class="flex items-center space-x-2">
+                        <h1 class="font-extrabold text-lg tracking-tight bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">Lifeline<span class="text-emerald-400">SMS</span></h1>
+                        <span class="flex h-2 w-2 relative">
+                            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                            <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                        </span>
+                    </div>
+                    <p class="text-[10px] uppercase tracking-wider text-emerald-400 font-semibold">PH Zero-Load Family Bridge</p>
+                </div>
+            </div>
+
+            <!-- Header Details & Auth Widget -->
+            <div class="flex items-center space-x-3">
+                <div class="hidden sm:flex flex-col text-right">
+                    <span class="text-xs font-medium text-slate-300">DITO Gateway Network</span>
+                    <span class="text-[10px] text-emerald-400">₱99 Unli-Text Active</span>
+                </div>
+                <div id="auth-container" class="flex items-center space-x-2">
+                    <!-- Real Google Identity Services button mounts here when a Client ID is configured -->
+                    <div id="g_id_onload_mount" class="hidden"></div>
+
+                    <!-- Fallback / demo button (kept accessible & keyboard operable) -->
+                    <button type="button" onclick="toggleAuth()" id="auth-btn"
+                        aria-label="Sign in with Google"
+                        class="flex items-center space-x-2 bg-slate-800/90 hover:bg-slate-700 border border-slate-700/80 px-3.5 py-2 rounded-xl text-xs font-medium transition-all active:scale-95 shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400">
+                        <svg class="w-4 h-4" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/></svg>
+                        <span id="auth-text">Sign in with Google</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Grid -->
+    <main class="flex-1 max-w-xl w-full mx-auto px-4 py-8 flex flex-col justify-center space-y-6">
+
+        <!-- Hero Notice Card -->
+        <div class="glass-card rounded-2xl p-4.5 shadow-xl border-emerald-500/20 relative overflow-hidden">
+            <div class="absolute -right-8 -bottom-8 w-32 h-32 bg-emerald-500/10 rounded-full blur-xl pointer-events-none"></div>
+            <div class="flex items-start space-x-3.5">
+                <div class="p-2.5 bg-emerald-500/20 rounded-xl text-emerald-400 mt-0.5">
+                    <i data-lucide="shield-check" class="w-5 h-5"></i>
+                </div>
+                <div>
+                    <h2 class="text-sm font-bold text-emerald-200">Zero Load? Reach offline family instantly.</h2>
+                    <p class="text-xs text-slate-300 mt-1 leading-relaxed">
+                        Send crucial alerts or quick messages to older parents or family members in the PH who only receive standard SMS. Secured by Groq AI and DITO network routing.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Gateway Form Card -->
+        <div class="glass-card rounded-2xl p-6 shadow-2xl relative">
+            
+            <!-- Gateway Status Bar -->
+            <div class="flex items-center justify-between pb-4 mb-5 border-b border-slate-800 text-xs">
+                <div class="flex items-center space-x-2">
+                    <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span class="text-slate-300 font-medium">Guardrail Engine: <span id="guardrail-state" class="text-emerald-400 font-semibold">Active</span></span>
+                </div>
+                <div class="hidden sm:flex items-center space-x-2">
+                    <div class="bg-slate-800/90 text-slate-300 px-3 py-1 rounded-full font-mono text-[11px] border border-slate-700/60 shadow-inner">
+                        Scan: <span id="detector-count" class="text-emerald-400 font-bold">0</span>
+                    </div>
+                    <div class="bg-slate-800/90 text-slate-300 px-3 py-1 rounded-full font-mono text-[11px] border border-slate-700/60 shadow-inner">
+                        Credits: <span id="msg-counter" class="text-emerald-400 font-bold">0/1</span>
+                    </div>
+                </div>
+                <!-- Compact credit badge for small screens -->
+                <div class="sm:hidden bg-slate-800/90 text-slate-300 px-3 py-1 rounded-full font-mono text-[11px] border border-slate-700/60 shadow-inner">
+                    <span id="msg-counter-mobile" class="text-emerald-400 font-bold">0/1</span>
+                </div>
+            </div>
+
+            <!-- SMS Input Form -->
+            <form id="sms-form" onsubmit="handleSend(event)" class="space-y-4.5">
+                
+                <!-- Recipient Phone Number -->
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center justify-between">
+                        <span>Recipient Mobile Number</span>
+                        <span class="text-[10px] text-slate-500 font-mono">Globe, Smart, DITO</span>
+                    </label>
+                    <div class="relative flex items-center">
+                        <div class="absolute left-3.5 flex items-center space-x-1.5 text-slate-300 font-medium text-sm pointer-events-none border-r border-slate-700 pr-2.5">
+                            <span>🇵🇭</span>
+                            <span>+63</span>
+                        </div>
+                        <input type="tel" id="phone-number" required placeholder="9171234567" maxlength="10" pattern="[9][0-9]{9}"
+                            class="w-full bg-slate-950/80 border border-slate-800 rounded-xl pl-24 pr-4 py-3 text-sm font-mono text-slate-100 placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all shadow-inner">
+                    </div>
+                </div>
+
+                <!-- Message Body & Counter -->
+                <div>
+                    <div class="flex items-center justify-between mb-1.5">
+                        <label class="text-xs font-semibold text-slate-300">Message Content</label>
+                        <span id="char-count" class="text-[11px] font-mono text-slate-400">0 / 50 max</span>
+                    </div>
+                    <div class="relative">
+                        <textarea id="message-body" required rows="2" maxlength="50" oninput="updateCharCount(this)" placeholder="e.g., Ma, stranded sa terminal. pauwi na po."
+                            class="w-full bg-slate-950/80 border border-slate-800 rounded-xl p-3 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all resize-none shadow-inner"></textarea>
+                    </div>
+                    <p class="text-[10px] text-slate-500 mt-1">Automatic watermark <code class="text-emerald-400 font-mono">[Via LifelineSMS]</code> appended securely.</p>
+                </div>
+
+                <!-- Action Button -->
+                <button type="submit" id="submit-btn" class="w-full bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-extrabold py-3.5 px-4 rounded-xl shadow-lg shadow-emerald-500/25 transition-all flex items-center justify-center space-x-2 active:scale-[0.99]">
+                    <i data-lucide="send" class="w-4 h-4 stroke-[2.5]"></i>
+                    <span id="btn-label">Send Emergency SMS</span>
+                </button>
+            </form>
+
+        </div>
+
+        <!-- Live Dispatch Feed -->
+        <div class="glass-card rounded-2xl p-4 border-slate-800/80">
+            <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2.5 flex items-center space-x-2">
+                <i data-lucide="terminal" class="w-3.5 h-3.5 text-emerald-400"></i>
+                <span>Gateway Dispatch Feed</span>
+            </h3>
+            <div id="log-box" class="space-y-1.5 font-mono text-xs text-slate-400 max-h-24 overflow-y-auto pr-1">
+                <div class="flex items-center space-x-2 text-slate-500">
+                    <span class="text-emerald-500 font-bold">></span>
+                    <span>System initialized. DITO SIM gateway online. AI guardrails armed.</span>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Rewarded Ad Modal -->
+    <div id="ad-modal" class="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md hidden items-center justify-center p-4">
+        <div class="glass-card border border-slate-800 rounded-2xl max-w-sm w-full p-6 shadow-2xl text-center space-y-4 animate-in fade-in zoom-in duration-200">
+            <div class="w-12 h-12 bg-amber-500/20 text-amber-400 rounded-2xl mx-auto flex items-center justify-center">
+                <i data-lucide="video" class="w-6 h-6"></i>
+            </div>
+            <div>
+                <h3 class="font-bold text-base text-white">Free Message Limit Reached</h3>
+                <p class="text-xs text-slate-400 mt-1">Watch a quick 15-second sponsored ad to unlock your next emergency text instantly.</p>
+            </div>
+            
+            <!-- Ad Simulation Box -->
+            <div id="ad-player" class="bg-slate-950/90 border border-slate-800 rounded-xl h-36 flex flex-col items-center justify-center relative overflow-hidden">
+                <div class="absolute inset-0 bg-gradient-to-tr from-amber-500/10 to-emerald-500/10"></div>
+                <div id="ad-content" class="relative z-10 space-y-2">
+                    <span class="inline-block px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-bold uppercase tracking-wider">Sponsored Ad</span>
+                    <p class="text-sm font-semibold text-slate-200">DITO Telecommunity Promo</p>
+                    <p class="text-xs text-slate-400">Fast 5G Data & Unli Texts Nationwide</p>
+                </div>
+                <div id="ad-timer-overlay" class="absolute bottom-2 right-2 bg-slate-900/90 border border-slate-700 px-2 py-1 rounded-lg text-[11px] font-mono text-amber-400 hidden">
+                    Ad playing: <span id="countdown">15</span>s
+                </div>
+            </div>
+
+            <button onclick="startAdSequence()" id="watch-ad-btn" class="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold py-3 rounded-xl transition-all shadow-lg shadow-amber-500/20 flex items-center justify-center space-x-2">
+                <i data-lucide="play" class="w-4 h-4 fill-current"></i>
+                <span>Watch 15s Ad & Unlock 1 Text</span>
+            </button>
+        </div>
+    </div>
+
+    <footer class="py-4 text-center text-[11px] text-slate-600 border-t border-slate-900">
+        <p>LifelineSMS Philippines &bull; Built for Community Resilience &bull; RA 11934 Compliant Gateways</p>
+    </footer>
+
+    <script>
+        // Initialize Lucide Icons
+        lucide.createIcons();
+
+        // State Management
+        let isLoggedIn = false;
+        let messagesUsed = 0;
+        const maxFreeMessages = 1;
+
+        // Floating Bubbles Content Array (Chat Bubble Shaped Windows)
+        const floatingTips = [
+            { icon: "🛡️", title: "AI Guardrail Active", text: "Groq Llama 3 actively filters out spam and perverted text." },
+            { icon: "👵", title: "Offline Family Bridge", text: "Reach older parents directly via standard SMS with zero data." },
+            { icon: "📜", title: "RA 11934 Compliant", text: "Google login ensures legal accountability and trace safety." },
+            { icon: "⚡", title: "Instant DITO Relay", text: "Fast unli-text gateway routing for zero-load emergencies." }
+        ];
+
+        let tipIndex = 0;
+
+        // Function to render artistic chat-shaped floating windows on sides
+        function triggerFloatingBubble(containerId, tipData) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+
+            container.innerHTML = `
+                <div class="bubble-anim glass-card rounded-2xl p-4 shadow-2xl border border-emerald-500/30 relative text-left">
+                    <!-- Chat bubble tail pointer -->
+                    <div class="absolute -bottom-2 left-6 w-4 h-4 bg-slate-900 border-r border-b border-emerald-500/30 transform rotate-45"></div>
+                    <div class="flex items-center space-x-2.5 mb-1.5">
+                        <span class="text-base">${tipData.icon}</span>
+                        <h4 class="text-xs font-bold text-white tracking-tight">${tipData.title}</h4>
+                    </div>
+                    <p class="text-[11px] text-slate-300 leading-relaxed">${tipData.text}</p>
+                </div>
+            `;
+        }
+
+        // Cycle floating bubbles periodically
+        setInterval(() => {
+            const leftTip = floatingTips[tipIndex % floatingTips.length];
+            const rightTip = floatingTips[(tipIndex + 2) % floatingTips.length];
+            
+            triggerFloatingBubble('left-floating-bubble', leftTip);
+            triggerFloatingBubble('right-floating-bubble', rightTip);
+            
+            tipIndex++;
+        }, 7000);
+
+        // Initial trigger
+        setTimeout(() => {
+            triggerFloatingBubble('left-floating-bubble', floatingTips[0]);
+            triggerFloatingBubble('right-floating-bubble', floatingTips[1]);
+        }, 500);
+
+        // Toggle Auth State Mockup
+        function toggleAuth() {
+            isLoggedIn = !isLoggedIn;
+            const btnText = document.getElementById('auth-text');
+            const authBtn = document.getElementById('auth-btn');
+            
+            if (isLoggedIn) {
+                btnText.textContent = "Connected (Juan D.)";
+                authBtn.classList.remove('bg-slate-800/90', 'border-slate-700/80');
+                authBtn.classList.add('bg-emerald-950/90', 'border-emerald-500/50', 'text-emerald-300');
+                appendLog("Google OAuth verified: Juan Dela Cruz connected.");
+            } else {
+                btnText.textContent = "Sign in with Google";
+                authBtn.classList.add('bg-slate-800/90', 'border-slate-700/80');
+                authBtn.classList.remove('bg-emerald-950/90', 'border-emerald-500/50', 'text-emerald-300');
+                appendLog("User signed out.");
+            }
+        }
+
+        // Live Character Counter & Validation
+        function updateCharCount(textarea) {
+            const count = textarea.value.length;
+            const counterEl = document.getElementById('char-count');
+            counterEl.textContent = `${count} / 50 max`;
+            if (count >= 45) {
+                counterEl.classList.add('text-amber-400', 'font-bold');
+            } else {
+                counterEl.classList.remove('text-amber-400', 'font-bold');
+            }
+        }
+
+        // Handle Form Submission / Send Flow
+        function handleSend(event) {
+            event.preventDefault();
+
+            if (!isLoggedIn) {
+                appendLog("ERROR: Authentication required under PH SIM Registration Act.");
+                toggleAuth();
+                return;
+            }
+
+            if (messagesUsed >= maxFreeMessages) {
+                // Show Rewarded Ad Modal
+                document.getElementById('ad-modal').classList.remove('hidden');
+                document.getElementById('ad-modal').classList.add('flex');
+                appendLog("Free message quota exhausted. Rewarded ad prompt triggered.");
+                return;
+            }
+
+            executeDispatchSequence();
+        }
+
+        // Simulated Dispatch Sequence
+        function executeDispatchSequence() {
+            const phone = document.getElementById('phone-number').value;
+            const msg = document.getElementById('message-body').value;
+
+            if (phone.length !== 10) {
+                appendLog("ERROR: Please enter a valid 10-digit mobile number after +63.");
+                return;
+            }
+
+            appendLog(`[1/3] Running Groq Llama 3 safety filter on message...`);
+            
+            setTimeout(() => {
+                appendLog(`[2/3] AI Check Passed: Clean content verified. Pinging DITO gateway SIM...`);
+            }, 800);
+
+            setTimeout(() => {
+                messagesUsed++;
+                document.getElementById('msg-counter').textContent = `${messagesUsed}/${maxFreeMessages}`;
+                appendLog(`[3/3] SUCCESS: Dispatched to +63${phone} with tag [Via LifelineSMS].`);
+                
+                // Clear input
+                document.getElementById('message-body').value = '';
+                document.getElementById('char-count').textContent = '0 / 50 max';
+            }, 1800);
+        }
+
+        // Rewarded Ad Countdown & Unlock Sequence
+        function startAdSequence() {
+            const watchBtn = document.getElementById('watch-ad-btn');
+            const timerOverlay = document.getElementById('ad-timer-overlay');
+            const countdownEl = document.getElementById('countdown');
+            
+            watchBtn.disabled = true;
+            watchBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            timerOverlay.classList.remove('hidden');
+
+            let timeLeft = 15;
+            const timer = setInterval(() => {
+                timeLeft--;
+                countdownEl.textContent = timeLeft;
+                if (timeLeft <= 0) {
+                    clearInterval(timer);
+                    messagesUsed = 0;
+                    document.getElementById('msg-counter').textContent = `${messagesUsed}/${maxFreeMessages}`;
+                    document.getElementById('ad-modal').classList.remove('flex');
+                    document.getElementById('ad-modal').classList.add('hidden');
+                    
+                    watchBtn.disabled = false;
+                    watchBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                    timerOverlay.classList.add('hidden');
+                    countdownEl.textContent = '15';
+                    
+                    appendLog("Rewarded ad completed! 1 new message credit unlocked.");
+                }
+            }, 1000);
+        }
+
+        // Append log to live terminal feed
+        function appendLog(text) {
+            const logBox = document.getElementById('log-box');
+            const timestamp = new Date().toLocaleTimeString();
+            const logItem = document.createElement('div');
+            logItem.className = "flex items-start space-x-2 animate-in fade-in duration-300";
+            logItem.innerHTML = `<span class="text-emerald-500 font-bold">[${timestamp}]</span> <span class="text-slate-300">${text}</span>`;
+            logBox.appendChild(logItem);
+            logBox.scrollTop = logBox.scrollHeight;
+        }
+    </script>
+</body>
+</html>
