@@ -162,6 +162,9 @@ async function handleCredential(response) {
 let gsiInitialised = false;
 let gsiButtonRendered = false;
 
+/** Where Google's button was rendered, so sign-out can undo it. */
+let gsiRenderedInto = /** @type {HTMLElement|null} */ (null);
+
 /**
  * Initialise Google Identity Services and render its button.
  *
@@ -169,15 +172,29 @@ let gsiButtonRendered = false;
  * beyond branding: it prevents a lookalike control being substituted to harvest
  * credentials, and Google validates the origin it renders into.
  *
+ * The button is rendered into the SIGN-IN GATE, which is where the user is
+ * actually looking when they are signed out. Rendering only into the header
+ * produced a flow that looked broken: accepting the policy appeared to do
+ * nothing, because the button appeared somewhere the user was not looking.
+ *
  * Safe to call repeatedly; only the first effective call does any work.
  *
  * @returns {{ok: boolean, reason: string|null}}
  */
 export function initGoogleSignIn() {
-  const host = el('#gsi-button-host');
-  const fallback = el('#demo-signin-btn');
+  // The gate host is the primary target; the header is the fallback so a
+  // markup change cannot silently remove all sign-in affordances.
+  const host = el('#gsi-gate-host') ?? el('#gsi-button-host');
+  const fallback = el('#gate-signin-btn');
+  const headerFallback = el('#demo-signin-btn');
 
   if (!state.googleEnabled) {
+    return { ok: false, reason: state.unavailableReason };
+  }
+
+  if (!host) {
+    state.unavailableReason = 'The sign-in control is missing from the page.';
+    emit();
     return { ok: false, reason: state.unavailableReason };
   }
 
@@ -217,26 +234,30 @@ export function initGoogleSignIn() {
       // confusion and unrequested sign-in attempts on shared devices.
     }
 
-    if (!gsiButtonRendered) {
-      // Clear any stale content so a re-render cannot stack buttons.
-      host?.replaceChildren();
+    // Re-render when the target has changed (for example after a re-layout) or
+    // the previous render was undone by sign-out.
+    if (!gsiButtonRendered || gsiRenderedInto !== host) {
+      host.replaceChildren();
 
-      // Google's button renders into this host; the plain button is hidden.
       window.google.accounts.id.renderButton(host, {
         type: 'standard',
         theme: 'filled_black',
-        size: 'medium',
+        size: 'large',
         shape: 'pill',
         text: 'signin_with',
         logo_alignment: 'left',
-        width: 200,
+        width: 240,
       });
 
+      gsiRenderedInto = host;
       gsiButtonRendered = true;
     }
 
-    host?.classList.remove('hidden');
+    // Reveal the real Google button and retire BOTH placeholder buttons, so a
+    // click can never loop back to the policy modal.
+    host.classList.remove('hidden');
     fallback?.classList.add('hidden');
+    headerFallback?.classList.add('hidden');
 
     return { ok: true, reason: null };
   } catch (error) {
@@ -247,6 +268,7 @@ export function initGoogleSignIn() {
     return { ok: false, reason: state.unavailableReason };
   }
 }
+
 
 /**
  * Load the existing session from the server.
@@ -297,6 +319,11 @@ export async function signOut() {
     // Allow the button to be rendered again on the next sign-in. The
     // `initialize()` guard stays set, because that call is once per page load
     // and re-issuing it would discard the existing configuration.
+    if (gsiRenderedInto) {
+      gsiRenderedInto.replaceChildren();
+      gsiRenderedInto.classList.add('hidden');
+      gsiRenderedInto = null;
+    }
     gsiButtonRendered = false;
 
     return { ok: true };

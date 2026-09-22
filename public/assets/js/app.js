@@ -410,6 +410,7 @@ async function handleAuthButtonClick() {
       ui.toast('Signed out.', 'info');
       ui.hideCrisisPanel();
       ui.renderModerationFeedback(null);
+      resetSignInGate();
     } else {
       ui.toast(result.error ?? 'Sign-out failed.', 'error');
     }
@@ -435,9 +436,56 @@ function beginGoogleSignIn() {
     return;
   }
 
-  // Send focus to Google's button so the flow continues without a hunt.
-  el('#gsi-button-host button')?.focus();
-  ui.logLine('Google sign-in ready. Choose an account to continue.', 'info');
+  // Focus and scroll to Google's button. Without the scroll the button can sit
+  // below the fold, which looks identical to nothing having happened.
+  const googleButton = el('#gsi-gate-host button');
+  googleButton?.focus();
+  el('#gsi-gate-host')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+
+  // Update the heading so the gate visibly changes state. Silence here is what
+  // made a working flow look broken.
+  const heading = el('#auth-gate h3');
+  if (heading) heading.textContent = 'Choose your Google account to continue';
+
+  ui.logLine('Policy accepted. Google sign-in is ready.', 'success');
+}
+
+/**
+ * Reset the gate back to its pre-consent appearance.
+ * Used on sign-out so the user can accept and sign in again.
+ */
+function resetSignInGate() {
+  const heading = el('#auth-gate h3');
+  if (heading) heading.textContent = 'Sign-in required before sending';
+
+  setVisible(el('#gsi-gate-host'), false);
+  setVisible(el('#gate-signin-btn'), true);
+  setVisible(el('#demo-signin-btn'), true);
+  setVisible(el('#auth-gate-note'), false);
+}
+
+/**
+ * Handle a click on the pre-consent gate button.
+ *
+ * Before consent it opens the policy. After consent it must NOT reopen the
+ * policy, or the user is trapped in a loop with no way to reach Google's
+ * button - which is exactly what happened when the button and the real Google
+ * control lived in different parts of the page.
+ */
+async function handleGateButtonClick() {
+  if (auth.state.policyAccepted) {
+    // Consent already given; the only reason this button is still visible is
+    // that Google's button failed to render. Retry, and explain if it fails.
+    const result = auth.initGoogleSignIn();
+
+    if (!result.ok) {
+      ui.renderAuthUnavailable(result.reason ?? 'Google sign-in is unavailable.');
+      ui.toast(result.reason ?? 'Google sign-in is unavailable.', 'warning');
+    }
+    return;
+  }
+
+  await openPolicy({ acceptMode: true });
 }
 
 /* ---------------------------------------------------------------------------
@@ -449,7 +497,7 @@ function bindEvents() {
   el('#sms-form')?.addEventListener('submit', handleSend);
 
   el('#demo-signin-btn')?.addEventListener('click', handleAuthButtonClick);
-  el('#gate-signin-btn')?.addEventListener('click', () => openPolicy({ acceptMode: true }));
+  el('#gate-signin-btn')?.addEventListener('click', handleGateButtonClick);
 
   el('#view-policy-btn')?.addEventListener('click', () => openPolicy());
   el('#consent-policy-link')?.addEventListener('click', () => openPolicy());
