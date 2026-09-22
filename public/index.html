@@ -209,6 +209,16 @@
                 </div>
             </div>
 
+            <!--
+              Send status banner. Populated by ui.renderSendStatus().
+
+              Deliberately placed directly above the composer, and it persists
+              until dismissed: a toast that fades cannot answer "did my
+              emergency message actually go out?", which is the one question a
+              user must never have to guess at.
+            -->
+            <div id="send-status" class="hidden" role="status" aria-live="polite"></div>
+
             <!-- Composer form -->
             <form id="sms-form" class="space-y-4" novalidate>
 

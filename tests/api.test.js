@@ -531,6 +531,154 @@ describe('moderation: crisis content is delivered, never blocked', () => {
 });
 
 /* ===========================================================================
+   Explanation layer
+   =========================================================================== */
+
+describe('explanation: users can see what tripped the filter', () => {
+  it('returns a redacted excerpt rather than the raw matched term', async () => {
+    const response = await call('/api/sms/send', {
+      method: 'POST',
+      body: { phone: '9171234567', body: 'benta shabu dito, 5k per gram' },
+      authenticated: true,
+    });
+
+    const explanation = response.body.explanation;
+    assert.ok(explanation, 'a blocked send must carry an explanation');
+    assert.ok(explanation.excerpts.length > 0, 'at least one excerpt is expected');
+
+    const serialised = JSON.stringify(explanation);
+
+    // The whole point: the trigger term must be masked, not handed over.
+    assert.doesNotMatch(serialised, /shabu/i, 'the raw term must not be returned');
+
+    // But the SHAPE must be visible, so the user can find it in their text.
+    assert.match(serialised, /\*/);
+  });
+
+  it('explains the reason in plain language', async () => {
+    const response = await call('/api/sms/send', {
+      method: 'POST',
+      body: { phone: '9171234567', body: 'benta shabu dito' },
+      authenticated: true,
+    });
+
+    const { explanation } = response.body;
+    assert.ok(explanation.reason.length > 0);
+    assert.ok(explanation.detail.length > 20, 'detail should be substantive');
+  });
+
+  it('gives the user actionable guidance and a retry path', async () => {
+    const response = await call('/api/sms/send', {
+      method: 'POST',
+      body: { phone: '9171234567', body: 'benta shabu dito' },
+      authenticated: true,
+    });
+
+    const { explanation } = response.body;
+
+    assert.ok(explanation.guidance.length >= 2, 'guidance should be actionable');
+    assert.equal(explanation.retryable, true, 'ordinary blocks should be retryable');
+
+    const serialised = JSON.stringify(explanation.guidance).toLowerCase();
+    assert.match(serialised, /try again|rewrite/);
+  });
+
+  it('tells the user nothing was sent', async () => {
+    const response = await call('/api/sms/send', {
+      method: 'POST',
+      body: { phone: '9171234567', body: 'benta shabu dito' },
+      authenticated: true,
+    });
+
+    const serialised = JSON.stringify(response.body.explanation).toLowerCase();
+    assert.match(serialised, /nothing was sent|not sent/);
+  });
+
+  it('marks CSAM as not retryable and cites the statute', async () => {
+    const response = await call('/api/sms/send', {
+      method: 'POST',
+      body: { phone: '9171234567', body: 'batang hubad pics send mo' },
+      authenticated: true,
+    });
+
+    assert.equal(response.body.code, 'prohibited_csam');
+
+    const { explanation } = response.body;
+    assert.equal(explanation.retryable, false, 'CSAM must not be presented as retryable');
+    assert.match(explanation.detail, /RA 9775/);
+
+    const serialised = JSON.stringify(explanation).toLowerCase();
+    assert.match(serialised, /report/);
+  });
+
+  it('includes the explanation in the preview response', async () => {
+    const response = await call('/api/sms/preview', {
+      method: 'POST',
+      body: { body: 'benta shabu dito' },
+      authenticated: true,
+    });
+
+    assert.equal(response.body.action, 'block');
+    assert.ok(response.body.explanation, 'preview must explain blocks too');
+    assert.ok(response.body.explanation.excerpts.length > 0);
+  });
+
+  it('omits the explanation for allowed messages', async () => {
+    const response = await call('/api/sms/preview', {
+      method: 'POST',
+      body: { body: 'Ma, pauwi na po.' },
+      authenticated: true,
+    });
+
+    assert.equal(response.body.action, 'allow');
+    assert.equal(response.body.explanation, null);
+  });
+
+  it('returns no excerpts for a crisis message', async () => {
+    const response = await call('/api/sms/send', {
+      method: 'POST',
+      body: { phone: '9171234567', body: 'gusto ko na mamatay' },
+      authenticated: true,
+    });
+
+    assert.equal(response.body.action, 'assist');
+    // A crisis message is not a violation, so there is nothing to highlight.
+    // The crisis path returns early and never builds an explanation at all.
+    assert.ok(
+      response.body.explanation == null,
+      'a crisis send must not carry a violation explanation',
+    );
+  });
+
+  it('confirms delivery in the response so the UI can state it unambiguously', async () => {
+    const response = await call('/api/sms/send', {
+      method: 'POST',
+      body: { phone: '9171234567', body: 'Ma, pauwi na po.' },
+      authenticated: true,
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(response.body.ok, true);
+    assert.equal(response.body.action, 'allow');
+    assert.ok(response.body.delivery.status, 'delivery status must be reported');
+    assert.ok(response.body.recipient.masked, 'a masked recipient confirms the target');
+  });
+
+  it('masks the recipient number rather than echoing it in full', async () => {
+    const response = await call('/api/sms/send', {
+      method: 'POST',
+      body: { phone: '9171234567', body: 'Ma, pauwi na po.' },
+      authenticated: true,
+    });
+
+    const masked = response.body.recipient.masked;
+
+    assert.match(masked, /\u2022/, 'the middle digits should be masked');
+    assert.doesNotMatch(masked, /9171234567/, 'the full number must not be echoed back');
+  });
+});
+
+/* ===========================================================================
    Policy
    =========================================================================== */
 

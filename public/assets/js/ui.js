@@ -285,6 +285,32 @@ export function renderModerationFeedback(result) {
   if (!result.deliverable) {
     box.classList.add('bg-red-950/50', 'border', 'border-red-500/40', 'text-red-200');
     replace(box, [result.message || 'This message cannot be sent.']);
+
+    // Show the redacted excerpts inline so the problem is visible while typing,
+    // before the user even presses send.
+    const excerpts = result.explanation?.excerpts ?? [];
+    if (excerpts.length > 0) {
+      const list = create('ul', { class: 'mt-2 space-y-1.5' });
+
+      for (const item of excerpts) {
+        const children = [
+          create('p', { class: 'text-[10px] font-semibold text-red-200', text: item.label }),
+        ];
+
+        if (item.excerpt) {
+          children.push(create('code', {
+            class: 'block mt-1 font-mono text-[11px] text-red-100 bg-red-950/60 '
+              + 'border border-red-500/25 rounded px-2 py-1 break-all',
+            text: item.excerpt,
+          }));
+        }
+
+        list.append(create('li', {}, children));
+      }
+
+      box.append(list);
+    }
+
     setVisible(box, true);
     return;
   }
@@ -394,6 +420,153 @@ export function showCrisisModal(resources) {
   renderResourceList(el('#crisis-modal-list'), resources);
   openModal(el('#crisis-modal'));
   refreshIcons();
+}
+
+/* ---------------------------------------------------------------------------
+   Send status banner
+   ---------------------------------------------------------------------------
+   A persistent, unmistakable status region above the composer.
+
+   A toast was not sufficient: it disappears after a few seconds, and a user who
+   misses it cannot tell whether their emergency message went out. On a service
+   where a message may be the whole point, "did that work?" must never be
+   ambiguous.
+   --------------------------------------------------------------------------- */
+
+/**
+ * Render the send status banner.
+ *
+ * @param {{
+ *   state: 'idle'|'analyzing'|'sent'|'blocked'|'crisis'|'error',
+ *   title?: string,
+ *   detail?: string,
+ *   excerpts?: Array<{label: string, excerpt: string, statute: string|null}>,
+ *   guidance?: string[],
+ *   retryable?: boolean
+ * }} status
+ */
+export function renderSendStatus(status) {
+  const banner = el('#send-status');
+  if (!banner) return;
+
+  const { state } = status;
+
+  if (state === 'idle') {
+    setVisible(banner, false);
+    banner.replaceChildren();
+    return;
+  }
+
+  /** @type {Record<string, {border: string, bg: string, icon: string, colour: string}>} */
+  const themes = {
+    analyzing: { border: 'border-slate-700', bg: 'bg-slate-900/70', icon: 'loader', colour: 'text-slate-300' },
+    sent: { border: 'border-emerald-500/50', bg: 'bg-emerald-950/50', icon: 'check-circle-2', colour: 'text-emerald-400' },
+    crisis: { border: 'border-sky-400/50', bg: 'bg-sky-950/50', icon: 'heart-handshake', colour: 'text-sky-300' },
+    blocked: { border: 'border-red-500/50', bg: 'bg-red-950/40', icon: 'shield-x', colour: 'text-red-400' },
+    error: { border: 'border-amber-500/50', bg: 'bg-amber-950/40', icon: 'alert-triangle', colour: 'text-amber-400' },
+  };
+
+  const theme = themes[state] ?? themes.analyzing;
+
+  banner.className = `rounded-xl border ${theme.border} ${theme.bg} p-3.5 mb-4 animate-enter`;
+
+  const iconNode = create('i', {
+    'data-lucide': theme.icon,
+    class: `w-4 h-4 shrink-0 mt-0.5 ${theme.colour} ${state === 'analyzing' ? 'animate-spin' : ''}`,
+    'aria-hidden': 'true',
+  });
+
+  const body = create('div', { class: 'flex-1 min-w-0' });
+
+  body.append(create('p', {
+    class: `text-xs font-bold ${theme.colour}`,
+    text: status.title ?? '',
+  }));
+
+  if (status.detail) {
+    body.append(create('p', {
+      class: 'text-[11px] text-slate-300 mt-1 leading-relaxed',
+      text: status.detail,
+    }));
+  }
+
+  // --- Redacted excerpts: what tripped the filter, with the trigger masked.
+  if (status.excerpts?.length) {
+    const list = create('ul', { class: 'mt-2.5 space-y-2' });
+
+    for (const item of status.excerpts) {
+      const children = [
+        create('p', { class: 'text-[10px] font-semibold text-red-200', text: item.label }),
+      ];
+
+      if (item.excerpt) {
+        children.push(create('code', {
+          class: 'block mt-1 text-[11px] font-mono text-red-100 bg-red-950/60 '
+            + 'border border-red-500/25 rounded px-2 py-1 break-all',
+          text: item.excerpt,
+        }));
+      }
+
+      if (item.statute) {
+        children.push(create('p', {
+          class: 'text-[10px] text-slate-500 mt-1',
+          text: item.statute,
+        }));
+      }
+
+      list.append(create('li', { class: 'rounded-lg bg-black/20 p-2' }, children));
+    }
+
+    body.append(list);
+  }
+
+  // --- Next steps.
+  if (status.guidance?.length) {
+    const steps = create('ul', { class: 'mt-2.5 space-y-1' });
+
+    for (const step of status.guidance) {
+      steps.append(create('li', { class: 'text-[11px] text-slate-400 flex gap-2' }, [
+        create('span', { class: 'text-slate-600 shrink-0', text: '\u2013' }),
+        create('span', { text: step }),
+      ]));
+    }
+
+    body.append(steps);
+  }
+
+  // --- Retry affordance for recoverable blocks.
+  const actions = create('div', { class: 'mt-3 flex flex-wrap gap-2' });
+
+  if (state === 'blocked' && status.retryable !== false) {
+    actions.append(create('button', {
+      type: 'button',
+      id: 'status-edit-btn',
+      class: 'text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-100 '
+        + 'px-3 py-1.5 rounded-lg transition-all active:scale-95',
+      text: 'Edit message and try again',
+    }));
+  }
+
+  if (state === 'sent' || state === 'crisis') {
+    actions.append(create('button', {
+      type: 'button',
+      id: 'status-dismiss-btn',
+      class: 'text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-100 '
+        + 'px-3 py-1.5 rounded-lg transition-all active:scale-95',
+      text: 'Send another message',
+    }));
+  }
+
+  if (actions.children.length > 0) body.append(actions);
+
+  banner.replaceChildren(create('div', { class: 'flex items-start space-x-3' }, [iconNode, body]));
+  setVisible(banner, true);
+  refreshIcons();
+}
+
+/** Clear the send status banner. */
+export function clearSendStatus() {
+  renderSendStatus({ state: 'idle' });
 }
 
 /* ---------------------------------------------------------------------------

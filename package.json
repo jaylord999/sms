@@ -11,8 +11,9 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node --test tests/",
-    "audit:keywords": "node scripts/report-keywords.js"
+    "test": "node --test --test-force-exit tests/api.test.js",
+    "demo:outcomes": "node scripts/demo-outcomes.js",
+    "demo:moderation": "node scripts/smoke-moderation.js"
   },
   "dependencies": {
     "cookie-parser": "^1.4.7",

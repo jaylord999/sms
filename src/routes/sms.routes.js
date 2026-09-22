@@ -24,6 +24,7 @@
 import { Router } from 'express';
 import config from '../config.js';
 import { moderate } from '../moderation/engine.js';
+import { explainDecision } from '../moderation/explain.js';
 import { ACTION } from '../moderation/keywords.js';
 import { verifyOrigin, verifyCsrfToken } from '../security/csrf.js';
 import { sendLimiter, moderateLimiter } from '../security/rateLimiters.js';
@@ -147,6 +148,11 @@ router.post('/preview', verifyOrigin, verifyCsrfToken, moderateLimiter, async (r
     resources: result.isCrisis ? result.resources : [],
     message: result.userMessage,
     durationMs: result.durationMs,
+    // Human-readable explanation with redacted excerpts, so the user can see
+    // roughly what tripped the filter without learning a working bypass.
+    explanation: result.action === ACTION.BLOCK
+      ? explainDecision(result, bodyCheck.value.text)
+      : null,
   });
 });
 
@@ -259,6 +265,8 @@ router.post('/send', verifyOrigin, verifyCsrfToken, sendLimiter, async (req, res
       // Category labels are returned so the user understands why, but the
       // matched terms are never echoed back.
       findings: publicFindings(moderation),
+      // Actionable explanation: reason, redacted excerpts, and next steps.
+      explanation: explainDecision(moderation, bodyCheck.value.text),
       review: isUnderReview(userId),
     });
     return;

@@ -308,35 +308,80 @@ async function handleSend(event) {
 
   button.disabled = true;
   const originalLabel = label.textContent;
-  label.textContent = 'Sending...';
-  button.classList.add('opacity-70');
+  button.classList.add('opacity-70', 'btn-pending');
 
+  // -------------------------------------------------------------------------
+  // ANALYZING
+  // Show the pipeline stages so the wait is legible rather than a dead spinner.
+  // The step labels are cosmetic; the real work happens server-side in one call.
+  // -------------------------------------------------------------------------
+  ui.renderSendStatus({
+    state: 'analyzing',
+    title: 'Checking your message',
+    detail: 'Comparing it against prohibited-content rules before delivery...',
+  });
+
+  label.textContent = 'Checking...';
   ui.logLine('Running safety checks on message content...', 'info');
+
+  const stageTimer = setTimeout(() => {
+    label.textContent = 'Sending...';
+    ui.logLine('Contacting the SMS gateway...', 'info');
+  }, 700);
 
   try {
     const result = await endpoints.send(phone, body);
+    clearTimeout(stageTimer);
 
     // -----------------------------------------------------------------------
     // CRISIS PATH
-    // The message was delivered. Support the user; do not show a success toast
-    // that treats this like an ordinary send.
+    // The message WAS delivered. Support the user; never frame this as a
+    // failure, and never present it as an ordinary send either.
     // -----------------------------------------------------------------------
     if (result.isCrisis) {
       ui.logLine('Message delivered. Support resources shown.', 'success');
       ui.logLine('This did not use up a message credit.', 'info');
 
+      ui.renderSendStatus({
+        state: 'crisis',
+        title: 'Message sent',
+        detail: 'It mentioned thoughts of self-harm. Your message was delivered, and '
+          + 'free support numbers are shown below. This did not use up your allowance.',
+        guidance: [
+          `Delivered to ${result.recipient?.masked ?? 'the recipient'}.`,
+          'Support lines are open 24/7. You do not have to face this alone.',
+        ],
+      });
+
       ui.showCrisisModal(result.resources);
 
-      // Deliberately phrased as an offer, not an automatic action. Silently
-      // alerting a third party about someone's mental state would be a serious
-      // privacy violation.
-      const wantsAlert = el('#alert-trusted-contact')?.checked ?? false;
-      if (wantsAlert) {
-        ui.logLine('Trusted-contact alert requested. Follow the support steps to confirm.', 'info');
+      // Deliberately an offer, not an automatic action. Silently alerting a
+      // third party about someone's mental state would be a privacy violation.
+      if (el('#alert-trusted-contact')?.checked) {
+        ui.logLine('Trusted-contact alert requested.', 'info');
       }
     } else {
+      // ---------------------------------------------------------------------
+      // SUCCESS
+      // ---------------------------------------------------------------------
+      const status = result.delivery?.status ?? 'queued';
+      const reference = result.delivery?.messageId;
+
       ui.logLine(`Delivered to ${result.recipient?.masked ?? 'recipient'}.`, 'success');
-      ui.logLine(`Gateway response: ${result.delivery?.status ?? 'queued'}.`, 'success');
+      ui.logLine(`Gateway response: ${status}.`, 'success');
+
+      ui.renderSendStatus({
+        state: 'sent',
+        title: 'Message sent',
+        detail: `Delivered to ${result.recipient?.masked ?? 'the recipient'}`
+          + `${result.recipient?.carrier ? ` (${result.recipient.carrier})` : ''}. `
+          + `Gateway status: ${status}.`,
+        guidance: [
+          reference ? `Reference: ${reference}` : '',
+          'Standard SMS usually arrives within a few seconds.',
+        ].filter(Boolean),
+      });
+
       ui.toast('Message sent.', 'success');
     }
 
@@ -346,7 +391,7 @@ async function handleSend(event) {
       ui.renderQuota(result.quota);
     }
 
-    // Clear the composer on success.
+    // Clear the composer so the next message starts fresh.
     const textarea = el('#message-body');
     if (textarea) textarea.value = '';
     updateCharCount();
@@ -354,44 +399,122 @@ async function handleSend(event) {
     ui.renderModerationFeedback(null);
     ui.hideCrisisPanel();
   } catch (error) {
+    clearTimeout(stageTimer);
     if (error instanceof ApiError) {
       // -------------------------------------------------------------------
-      // BLOCKED
+      // BLOCKED - the most important message in the whole flow to get right.
       // -------------------------------------------------------------------
       if (error.code === 'prohibited_content' || error.code === 'prohibited_csam') {
-        ui.logLine(`Message blocked: ${error.payload?.findings?.[0]?.label ?? 'policy violation'}.`, 'blocked');
+        const explanation = error.payload?.explanation;
+
+        ui.logLine(
+          `Message blocked: ${explanation?.reason ?? 'policy violation'}.`,
+          'blocked',
+        );
+
+        ui.renderSendStatus({
+          state: 'blocked',
+          title: explanation?.reason ?? 'Message not sent',
+          detail: explanation?.detail
+            ?? 'This message appears to involve illegal activity. Nothing was sent.',
+          // Redacted excerpts so the user can locate the problem in their text.
+          excerpts: explanation?.excerpts ?? [],
+          guidance: explanation?.guidance ?? [
+            'Rewrite the message and try again.',
+            'If you believe this is a mistake, contact support.',
+          ],
+          retryable: explanation?.retryable !== false,
+        });
+
+        // The modal carries the full detail up front; the banner keeps it
+        // visible after the modal is dismissed.
         ui.showBlockedModal({
-          message: error.message,
+          message: explanation?.detail ?? error.message,
           findings: error.payload?.findings ?? [],
         });
       } else if (error.code === 'QUOTA_EXHAUSTED') {
         ui.logLine('Daily message allowance exhausted.', 'warning');
-        ui.toast('You have used all your free messages for today.', 'warning');
+
+        ui.renderSendStatus({
+          state: 'error',
+          title: 'Daily allowance used up',
+          detail: 'You have used all of your free messages for today. The allowance '
+            + 'resets on a rolling 24-hour basis.',
+          guidance: [
+            'Crisis messages are never counted against this allowance.',
+            'Try again later, or contact support.',
+          ],
+        });
+
         if (error.payload?.quota) {
           auth.updateQuota(error.payload.quota);
           ui.renderQuota(error.payload.quota);
         }
       } else if (error.code === 'ACCOUNT_TOO_NEW') {
         ui.logLine('Account still being verified.', 'warning');
-        ui.toast(error.message, 'warning');
+
+        ui.renderSendStatus({
+          state: 'error',
+          title: 'Account still being verified',
+          detail: error.message,
+          guidance: ['Wait a moment, then press send again.'],
+        });
+      } else if (error.code === 'PROVIDER_ERROR' || error.status === 502) {
+        ui.logLine('The SMS gateway could not deliver the message.', 'error');
+
+        ui.renderSendStatus({
+          state: 'error',
+          title: 'Message not delivered',
+          detail: 'The SMS gateway rejected or could not reach the destination. '
+            + 'Your message credit has been returned.',
+          guidance: [
+            'Check the number and try again.',
+            'If it keeps failing, the recipient may be on a network with delivery issues.',
+          ],
+        });
       } else if (error.code === 'AUTH_REQUIRED') {
         ui.logLine('Session expired. Sign in again.', 'error');
-        ui.toast('Your session expired. Please sign in again.', 'warning');
+
+        ui.renderSendStatus({
+          state: 'error',
+          title: 'Session expired',
+          detail: 'Your sign-in timed out for security reasons. Nothing was sent.',
+          guidance: ['Sign in again with Google to continue.'],
+        });
+
         await auth.signOut();
       } else if (error.code === 'RATE_LIMITED') {
         ui.logLine('Rate limited by the server.', 'warning');
-        ui.toast(error.message, 'warning');
+
+        ui.renderSendStatus({
+          state: 'error',
+          title: 'Please slow down',
+          detail: error.message,
+          guidance: ['Wait a moment before trying again.'],
+        });
       } else {
         ui.logLine(`Send failed: ${error.message}`, 'error');
-        ui.toast(error.message, 'error');
+
+        ui.renderSendStatus({
+          state: 'error',
+          title: 'Message not sent',
+          detail: error.message,
+          guidance: ['Check your details and try again.'],
+        });
       }
     } else {
       ui.logLine('Unexpected error while sending.', 'error');
-      ui.toast('Unexpected error. Please try again.', 'error');
+
+      ui.renderSendStatus({
+        state: 'error',
+        title: 'Message not sent',
+        detail: 'Something went wrong on our side. Nothing was sent.',
+        guidance: ['Please try again in a moment.'],
+      });
     }
   } finally {
     label.textContent = originalLabel;
-    button.classList.remove('opacity-70');
+    button.classList.remove('opacity-70', 'btn-pending');
     updateSendButtonState();
   }
 }
@@ -518,6 +641,12 @@ function bindEvents() {
   textarea?.addEventListener('input', () => {
     updateCharCount();
     updateSendButtonState();
+
+    // A banner describing the PREVIOUS attempt becomes misleading the moment a
+    // new message is being written. Clearing it avoids the user reading "sent"
+    // or "blocked" against text that is no longer the text in question.
+    ui.clearSendStatus();
+
     schedulePreview();
   });
 
@@ -572,6 +701,27 @@ function bindEvents() {
     const message = event.detail?.message ?? 'Sign-in failed.';
     ui.logLine(`Sign-in failed: ${message}`, 'error');
     ui.toast(message, 'error');
+  });
+
+  // --- Banners are rebuilt dynamically, so their buttons are handled by
+  //     delegation on the container rather than bound per render.
+  el('#send-status')?.addEventListener('click', (event) => {
+    const target = /** @type {HTMLElement} */ (event.target);
+
+    if (target.closest('#status-edit-btn')) {
+      // Return the user to the composer with their text intact, so they can
+      // edit the offending part rather than retype the whole message.
+      ui.clearSendStatus();
+      textarea?.focus();
+      textarea?.setSelectionRange(textarea.value.length, textarea.value.length);
+      ui.logLine('Edit the message and press send again.', 'info');
+      return;
+    }
+
+    if (target.closest('#status-dismiss-btn')) {
+      ui.clearSendStatus();
+      textarea?.focus();
+    }
   });
 
   // --- React to auth state changes
